@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>给你的玫瑰 · for you</title>
+<style>
+  :root{
+    --ink: #cfd6de;
+    --muted: #7c8794;
+    --dim: #4d5763;
+    --pink: #ff9fb2;
+    --mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+    --sans: "Inter", "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html, body{ height: 100%; }
+  body{
+    margin: 0; background: #000; color: var(--ink);
+    font-family: var(--sans); overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #gl{
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; background: #000; touch-action: none; cursor: grab;
+  }
+  #gl.dragging{ cursor: grabbing; }
+
+  /* ---------- overlay ---------- */
+  .hud{ position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+
+  .panel{
+    position: absolute; left: clamp(18px, 3.4vw, 54px); top: clamp(20px, 5vh, 56px);
+    bottom: clamp(58px, 9vh, 96px); width: clamp(300px, 33vw, 452px);
+    display: flex; flex-direction: column;
+    font-family: var(--mono); font-size: clamp(9px, .73vw, 11.5px);
+    line-height: 1.62; color: #8f99a5;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 7%, #000 90%, transparent 100%);
+            mask-image: linear-gradient(to bottom, transparent 0, #000 7%, #000 90%, transparent 100%);
+  }
+  .tab{
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: #b9c2cd;
+    padding-bottom: 10px; margin-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,.10);
+  }
+  .tab i{
+    width: 6px; height: 6px; border-radius: 50%; background: #ff8fa5;
+    box-shadow: 0 0 10px #ff8fa5, 0 0 22px rgba(255,110,140,.55);
+    animation: pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:.55;transform:scale(.85)} 50%{opacity:1;transform:scale(1.1)} }
+  .tab span{ margin-left: auto; color: #5d6875; letter-spacing: .08em; text-transform: none; }
+
+  .viewport{ flex: 1 1 auto; overflow: hidden; position: relative; }
+  .stream{
+    position: absolute; inset: 0 0 auto 0;
+    animation: drift 120s linear infinite;
+    will-change: transform;
+  }
+  .stream:hover{ animation-play-state: paused; }
+  @keyframes drift{ from{ transform: translate3d(0,0,0) } to{ transform: translate3d(0,-50%,0) } }
+  .code-set{ padding-bottom: 0; }
+  .line{ white-space: pre; }
+  .line .k{ color: #e3a3b5; }
+  .line .s{ color: #d9899b; }
+  .line .n{ color: #c8b189; }
+  .line .c{ color: #59636f; font-style: italic; }
+
+  .panel-foot{
+    display: flex; gap: 12px; align-items: center;
+    padding-top: 10px; margin-top: 10px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    color: #5f6a77; font-size: 9.5px; letter-spacing: .04em;
+  }
+  .panel-foot b{ color: #aab4c0; font-weight: 500; }
+
+  .top-right{
+    position: absolute; right: clamp(18px, 3.2vw, 46px); top: clamp(22px, 5vh, 52px);
+    text-align: right; font-family: var(--mono); font-size: 9.5px;
+    letter-spacing: .18em; color: #6a7481; text-transform: uppercase; line-height: 2;
+  }
+  .top-right .row{ display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
+  .top-right .dot{ width: 5px; height: 5px; border-radius: 50%; background: #ff8fa5; box-shadow: 0 0 9px #ff8fa5; animation: pulse 2.6s infinite; }
+  .top-right em{ font-style: normal; color: #b7c0ca; }
+
+  .mark{
+    position: absolute; right: clamp(18px, 3.2vw, 46px); bottom: clamp(24px, 5vh, 50px);
+    text-align: right;
+  }
+  .mark .t{
+    font-family: var(--sans); font-weight: 200; font-size: clamp(18px, 2.1vw, 30px);
+    letter-spacing: .48em; color: #e8edf3; text-indent: .48em;
+  }
+  .mark .s{
+    margin-top: 6px; font-family: var(--mono); font-size: 9px;
+    letter-spacing: .3em; color: #6b7683; text-transform: uppercase;
+  }
+
+  .hint{
+    position: absolute; left: 50%; bottom: clamp(18px, 3.4vh, 34px); transform: translateX(-50%);
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
+    color: #5c6672; white-space: nowrap;
+  }
+  .hint b{ color: #98a3af; font-weight: 400; }
+
+  .loading{
+    position: fixed; inset: 0; z-index: 5; background: #000;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .3em;
+    color: #8b95a1; transition: opacity .8s ease; text-transform: uppercase;
+  }
+  .loading.gone{ opacity: 0; pointer-events: none; }
+  .loading span{ animation: blink 1.2s steps(2,end) infinite; }
+  @keyframes blink{ 50%{ opacity: .25 } }
+
+  /* ---------- romantic edition ---------- */
+  .panel, .top-right, .mark, .hint { display: none !important; }
+
+  .message{
+    position: absolute; left: 50%; bottom: clamp(36px, 9vh, 92px);
+    transform: translate(-50%, 14px); text-align: center;
+    opacity: 0; will-change: opacity, transform;
+  }
+  .message p{
+    margin: 0;
+    font-family: "Songti SC", "Noto Serif SC", "STSong", Georgia, serif;
+    font-weight: 300; font-size: clamp(21px, 3.2vw, 34px);
+    letter-spacing: .34em; text-indent: .34em; color: #f7e9e4;
+    text-shadow: 0 0 26px rgba(255, 120, 140, .35), 0 0 60px rgba(255, 90, 120, .18);
+  }
+  .message span{
+    display: block; margin-top: 15px; font-family: var(--sans);
+    font-size: 9px; letter-spacing: .62em; text-indent: .62em;
+    color: #c9978c; text-transform: uppercase;
+  }
+  .message::before{
+    content: ""; display: block; width: 34px; height: 1px; margin: 0 auto 20px;
+    background: linear-gradient(90deg, transparent, rgba(255,170,160,.65), transparent);
+  }
+  @media (max-width: 900px), (max-height: 560px){
+    .message{ bottom: 6vh; }
+    .message p{ font-size: clamp(20px, 6.2vw, 30px); letter-spacing: .28em; text-indent: .28em; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div class="hud">
+  <div class="message" id="message">
+    <p>愿今天有个好心情</p>
+    <span>for you</span>
+  </div>
+
+  <div class="panel">
+    <div class="tab"><i></i> rose3d.py <span>python 3.13</span></div>
+    <div class="viewport"><div class="stream" id="stream"></div></div>
+    <div class="panel-foot" id="stats">
+      <b>94,000</b> particles · <b>41</b> petals · <b>6</b> whorls
+    </div>
+  </div>
+
+  <div class="top-right">
+    <div class="row"><span class="dot"></span> live render</div>
+    <div><em>volumetric</em> particle field</div>
+    <div>webgl2 · hdr bloom</div>
+  </div>
+
+  <div class="mark">
+    <div class="t">ROSE</div>
+    <div class="s">three dimensional · 2026</div>
+  </div>
+
+  <div class="hint">拖拽旋转 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; <b>空格</b> 暂停</div>
+</div>
+
+<div class="loading" id="loading"><span>正在为你绽放…</span></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ============================================================
+   0. tiny math
+   ============================================================ */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const mix = (a, b, t) => a + (b - a) * t;
+const smooth = t => t * t * (3 - 2 * t);
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return new Float32Array([
+    f / aspect, 0, 0, 0,
+    0, f, 0, 0,
+    0, 0, (far + near) * nf, -1,
+    0, 0, 2 * far * near * nf, 0
+  ]);
+}
+function lookAt(eye, center, up) {
+  const zx = eye[0] - center[0], zy = eye[1] - center[1], zz = eye[2] - center[2];
+  let zl = Math.hypot(zx, zy, zz) || 1;
+  const z = [zx / zl, zy / zl, zz / zl];
+  let x = [up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0]];
+  let xl = Math.hypot(x[0], x[1], x[2]) || 1;
+  x = [x[0] / xl, x[1] / xl, x[2] / xl];
+  const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+  return new Float32Array([
+    x[0], y[0], z[0], 0,
+    x[1], y[1], z[1], 0,
+    x[2], y[2], z[2], 0,
+    -(x[0] * eye[0] + x[1] * eye[1] + x[2] * eye[2]),
+    -(y[0] * eye[0] + y[1] * eye[1] + y[2] * eye[2]),
+    -(z[0] * eye[0] + z[1] * eye[1] + z[2] * eye[2]), 1
+  ]);
+}
+function mat4Multiply(a, b) {
+  const out = new Float32Array(16);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++)
+      out[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  return out;
+}
+function rotY(a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]);
+}
+function rotX(a) {
+  const c = Math.cos(a), s = Math.sin(a);
+  return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]);
+}
+
+/* ============================================================
+   1. the rose — procedural point cloud
+   ============================================================ */
+const MAX = 170000;
+const P = new Float32Array(MAX * 3);
+const C = new Float32Array(MAX * 3);
+const N = new Float32Array(MAX * 3);
+const A = new Float32Array(MAX * 4);     // size, seed, delay, kind
+let pCount = 0;
+
+const DEEP  = [0.52, 0.04, 0.10];
+const MID   = [1.00, 0.40, 0.44];
+const PALE  = [1.00, 0.84, 0.82];
+const LEAF_D = [0.14, 0.23, 0.12];
+const LEAF_L = [0.32, 0.44, 0.24];
+const STEM_D = [0.30, 0.06, 0.10];
+
+function mix3(a, b, t) {
+  return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)];
+}
+function push(x, y, z, nx, ny, nz, c, size, seed, delay, kind) {
+  if (pCount >= MAX) return;
+  const i3 = pCount * 3, i4 = pCount * 4;
+  P[i3] = x; P[i3 + 1] = y; P[i3 + 2] = z;
+  N[i3] = nx; N[i3 + 1] = ny; N[i3 + 2] = nz;
+  C[i3] = c[0]; C[i3 + 1] = c[1]; C[i3 + 2] = c[2];
+  A[i4] = size; A[i4 + 1] = seed; A[i4 + 2] = delay; A[i4 + 3] = kind;
+  pCount++;
+}
+
+/* --- petals: crescent shells curling around the heart -------------- */
+const WHORLS = [
+  { n: 9, r0: 0.30, y0: 0.00, spread: 0.98, rise: 0.68, droop: 0.22, W: 0.42, sweep: 0.55 },
+  { n: 9, r0: 0.23, y0: 0.10, spread: 0.82, rise: 0.72, droop: 0.16, W: 0.38, sweep: 0.65 },
+  { n: 8, r0: 0.16, y0: 0.22, spread: 0.64, rise: 0.72, droop: 0.11, W: 0.34, sweep: 0.75 },
+  { n: 7, r0: 0.10, y0: 0.36, spread: 0.46, rise: 0.66, droop: 0.07, W: 0.29, sweep: 0.85 },
+  { n: 6, r0: 0.05, y0: 0.50, spread: 0.30, rise: 0.56, droop: 0.04, W: 0.23, sweep: 0.95 },
+  { n: 5, r0: 0.02, y0: 0.62, spread: 0.17, rise: 0.42, droop: 0.02, W: 0.17, sweep: 1.05 }
+];
+const PETAL_POINTS = 104000;
+const GOLD = 2.399963229728653;
+const rand = mulberry32(20261018);
+
+let totalW = 0;
+for (const w of WHORLS) totalW += w.n * (w.spread + 0.2) * w.W;
+
+for (let wi = 0; wi < WHORLS.length; wi++) {
+  const w = WHORLS[wi];
+  const perPetal = PETAL_POINTS * ((w.spread + 0.2) * w.W) / totalW;
+  const q = wi / (WHORLS.length - 1);
+
+  for (let i = 0; i < w.n; i++) {
+    const ang = i * Math.PI * 2 / w.n + wi * 0.45 + (rand() - 0.5) * 0.05;
+    const cnt = Math.round(perPetal * (0.9 + 0.2 * rand()));
+
+    for (let k = 0; k < cnt; k++) {
+      const s = 0.02 + 0.96 * rand();
+      const v = rand() * 2 - 1;
+
+      const theta = ang + w.sweep * Math.pow(s, 1.3) + v * 0.0;
+      const R = w.r0 + w.spread * Math.pow(s, 1.2);
+      const Y = w.y0 + w.rise * Math.pow(s, 0.9) - w.droop * Math.pow(s, 2.5);
+
+      // broad, rounded petal outline
+      let hw = w.W * (0.18 + 0.82 * Math.sin(Math.PI / 2 * Math.min(1, s / 0.82)));
+      hw *= Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, s - 0.82) / 0.18, 2)));
+      hw *= 1 + 0.05 * Math.sin(v * 9 + s * 12) * s * s;
+
+      const th = theta + v * hw / Math.max(R, 0.16);
+      const cup = 0.22 * v * v * hw;
+      const lift = 0.26 * v * v * hw;
+
+      let x = (R - cup) * Math.cos(th);
+      let z = (R - cup) * Math.sin(th);
+      let y = Y + lift;
+
+      const sig = 0.006 + 0.015 * rand() * rand();
+      x += (rand() - 0.5) * sig * 2;
+      y += (rand() - 0.5) * sig * 2;
+      z += (rand() - 0.5) * sig * 2;
+
+      // wall-ish normal leaning outward
+      let nx = Math.cos(th), ny = 0.35, nz = Math.sin(th);
+      const nl = Math.hypot(nx, ny, nz);
+      nx /= nl; ny /= nl; nz /= nl;
+
+      let col = mix3(DEEP, MID, 0.15 + 0.72 * q);
+      col = mix3(col, PALE, Math.min(1, 0.12 * v * v + 0.18 * Math.pow(s, 2.2)));
+      if (s > 0.88) col = mix3(col, [1.0, 0.84, 0.76], 0.5);
+      if (Math.abs(v) > 0.9) col = mix3(col, [1.0, 0.86, 0.78], 0.4);
+      const b = 0.80 + 0.28 * rand();
+      col = [col[0] * b, col[1] * b, col[2] * b];
+      if (rand() < 0.006) col = [1.32, 0.88, 0.76];
+
+      let size = 1.35 + 1.25 * rand();
+      if (s > 0.88) size *= 1.12;
+
+      push(x, y, z, nx, ny, nz, col, size, rand(), 0.28 * rand(), 0);
+
+      if (rand() < 0.045) {
+        push(x + (rand() - 0.5) * 0.05, y + (rand() - 0.5) * 0.05, z + (rand() - 0.5) * 0.05,
+          nx, ny, nz, [col[0] * 0.28, col[1] * 0.28, col[2] * 0.28],
+          3.8 + 3.8 * rand(), rand(), 0.32 * rand(), 6);
+      }
+    }
+  }
+}
+
+/* --- deep heart ---------------------------------------------------- */
+for (let i = 0; i < 3400; i++) {
+  const a = rand() * Math.PI * 2, b = Math.acos(2 * rand() - 1);
+  const rr = 0.11 * Math.cbrt(rand());
+  const x = Math.sin(b) * Math.cos(a) * rr;
+  const y = 0.60 + Math.cos(b) * rr * 1.5;
+  const z = Math.sin(b) * Math.sin(a) * rr;
+  const col = mix3([0.36, 0.03, 0.08], [0.82, 0.18, 0.26], rand());
+  push(x, y, z, x, y, z, col, 1.6 + rand() * 1.3, rand(), 0.2 * rand(), 0);
+}
+
+/* --- stem ---------------------------------------------------------- */
+function stemAt(t) {
+  return [
+    0.20 * Math.sin(t * 2.4 + 0.2) + 0.035 * Math.sin(t * 7.0),
+    0.02 - 1.98 * t,
+    0.10 * Math.sin(t * 3.1 + 0.8)
+  ];
+}
+for (let i = 0; i < 7000; i++) {
+  const t = Math.pow(rand(), 0.85);
+  const s = stemAt(t);
+  const a = rand() * Math.PI * 2;
+  const rad = (0.038 - 0.014 * t) * (0.55 + 0.7 * rand());
+  const x = s[0] + Math.cos(a) * rad;
+  const z = s[2] + Math.sin(a) * rad;
+  const y = s[1] + (rand() - 0.5) * 0.006;
+  const hot = rand() < 0.14;
+  const col = hot ? [0.66, 0.40, 0.40] : mix3(STEM_D, [0.18, 0.05, 0.08], rand() * 0.5);
+  push(x, y, z, Math.cos(a), 0.15, Math.sin(a), col, 1.3 + rand() * 1.0, rand(), 0.35 * rand(), 2);
+}
+
+/* --- thorns -------------------------------------------------------- */
+for (const [t, a] of [[0.17, 0.7], [0.36, 3.1], [0.57, 1.3], [0.74, 4.2]]) {
+  const s = stemAt(t);
+  const dirx = Math.cos(a), dirz = Math.sin(a);
+  for (let i = 0; i < 200; i++) {
+    const k = rand();
+    const r = 0.018 * (1 - k);
+    const x = s[0] + dirx * 0.02 + dirx * 0.10 * k + Math.cos(a + 1.57) * r * (rand() * 2 - 1);
+    const z = s[2] + dirz * 0.02 + dirz * 0.10 * k + Math.sin(a + 1.57) * r * (rand() * 2 - 1);
+    const y = s[1] + rand() * 0.01;
+    push(x, y, z, dirx, 0.3, dirz, [0.62, 0.40, 0.38], 1.2 + rand(), rand(), 0.3 * rand(), 2);
+  }
+}
+
+/* --- leaves -------------------------------------------------------- */
+function addLeaf(t, angle, len, wid) {
+  const s = stemAt(t);
+  const ux = Math.cos(angle), uz = Math.sin(angle);
+  const dx = ux * 0.95, dy = 0.30, dz = uz * 0.95;
+  const dl = Math.hypot(dx, dy, dz);
+  const dir = [dx / dl, dy / dl, dz / dl];
+  // side = normalize(cross(dir, up))
+  let sx = dir[1] * 0 - dir[2] * 1, sy = dir[2] * 0 - dir[0] * 0, sz = dir[0] * 1 - dir[1] * 0;
+  let sl = Math.hypot(sx, sy, sz);
+  sx /= sl; sy /= sl; sz /= sl;
+  // normal = normalize(cross(side, dir))
+  let nx = sy * dir[2] - sz * dir[1];
+  let ny = sz * dir[0] - sx * dir[2];
+  let nz = sx * dir[1] - sy * dir[0];
+  let nl = Math.hypot(nx, ny, nz) || 1;
+  nx /= nl; ny /= nl; nz /= nl;
+
+  for (let i = 0; i < 3200; i++) {
+    const sPos = 0.02 + 0.97 * rand();
+    const tt = rand() * 2 - 1;
+    let half = wid * Math.pow(Math.sin(Math.PI * Math.pow(sPos, 0.82)), 0.9);
+    half *= 1 + 0.12 * Math.sin(sPos * 46 + angle * 5);
+    const cx = s[0] + dir[0] * len * sPos;
+    const cy = s[1] + dir[1] * len * sPos + 0.26 * Math.sin(Math.PI * sPos * 0.95) - 0.16 * sPos * sPos;
+    const cz = s[2] + dir[2] * len * sPos;
+    const fold = 0.14 * Math.abs(tt) * half;
+    const x = cx + sx * tt * half + nx * fold + (rand() - 0.5) * 0.008;
+    const y = cy + sy * tt * half + ny * fold + (rand() - 0.5) * 0.008;
+    const z = cz + sz * tt * half + nz * fold + (rand() - 0.5) * 0.008;
+
+    let col = mix3(LEAF_D, LEAF_L, 0.20 + 0.45 * rand());
+    if (Math.abs(tt) > 0.86) col = mix3(col, [0.46, 0.56, 0.32], 0.45);
+    if (Math.abs(tt) < 0.05) col = mix3(col, [0.40, 0.52, 0.28], 0.6);
+
+    push(x, y, z, nx, ny, nz, col, 1.05 + rand() * 0.85, rand(), 0.42 * rand(), 3);
+  }
+}
+addLeaf(0.30, 0.65, 0.92, 0.26);
+addLeaf(0.53, 3.65, 0.86, 0.24);
+addLeaf(0.71, 2.05, 0.70, 0.20);
+
+
+/* --- calyx: green cup joining bloom to stem ------------------------ */
+for (let i = 0; i < 1400; i++) {
+  const a = rand() * Math.PI * 2;
+  const t = rand();
+  const rr = 0.32 * (1 - 0.55 * t) * (0.8 + 0.2 * rand());
+  const x = Math.cos(a) * rr;
+  const z = Math.sin(a) * rr;
+  const y = 0.18 - 0.40 * t;
+  const c = mix3([0.26, 0.36, 0.19], [0.46, 0.55, 0.32], rand());
+  push(x, y, z, Math.cos(a), 0.3, Math.sin(a), c, 1.4 + rand(), rand(), 0.3 * rand(), 3);
+}
+
+/* --- bokeh lights behind the rose --------------------------------- */
+for (let i = 0; i < 48; i++) {
+  const a = rand() * Math.PI * 2;
+  const rr = 1.4 + 2.6 * rand();
+  const x = Math.cos(a) * rr;
+  const z = -1.2 - 3.0 * rand();
+  const y = -0.4 + (rand() * 2 - 1) * 1.7;
+  const warm = mix3([1.0, 0.42, 0.48], [1.0, 0.78, 0.52], rand());
+  const k = 0.050 + 0.095 * rand();
+  push(x, y, z, 0, 1, 0,
+    [warm[0] * k, warm[1] * k, warm[2] * k], 50 + 95 * rand(), rand(), 0.6 * rand(), 8);
+}
+
+/* --- aura + haze --------------------------------------------------- */
+for (let i = 0; i < 4000; i++) {
+  const a = rand() * Math.PI * 2;
+  const r = 2.0 * Math.cbrt(rand());
+  const y = 0.32 + (rand() * 2 - 1) * 1.35;
+  const x = Math.cos(a) * r, z = Math.sin(a) * r;
+  const col = mix3([0.9, 0.35, 0.45], [1, 0.75, 0.8], rand());
+  const inten = 0.06 + 0.13 * rand();
+  push(x, y, z, 0, 1, 0, [col[0] * inten, col[1] * inten, col[2] * inten], 1.5 + rand() * 2.0, rand(), 0.65 * rand(), 4);
+}
+for (let i = 0; i < 1200; i++) {
+  const a = rand() * Math.PI * 2;
+  const r = 2.25 * Math.sqrt(rand());
+  const y = 0.30 + (rand() * 2 - 1) * 1.55;
+  const col = [0.42, 0.13, 0.18];
+  push(Math.cos(a) * r, y, Math.sin(a) * r, 0, 1, 0,
+    [col[0] * 0.028, col[1] * 0.028, col[2] * 0.028], 12 + rand() * 14, rand(), 0.7 * rand(), 5);
+}
+for (let i = 0; i < 1800; i++) {
+  const x = (rand() * 2 - 1) * 2.7;
+  const y = -3.2 + rand() * 5.2;
+  const z = (rand() * 2 - 1) * 2.7;
+  const b = 0.08 + 0.12 * rand();
+  push(x, y, z, 0, 1, 0, [b, b * 0.9, b * 0.95], 0.9 + rand() * 1.4, rand(), rand(), 4);
+}
+
+/* ============================================================
+   2. WebGL2 renderer
+   ============================================================ */
+const canvas = document.getElementById("gl");
+const msgEl = document.getElementById("message");
+const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, powerPreference: "high-performance" });
+const loading = document.getElementById("loading");
+
+if (!gl) {
+  loading.innerHTML = "<span>WebGL2 is not available in this browser</span>";
+  return;
+}
+
+const hasFloat = !!gl.getExtension("EXT_color_buffer_float");
+const HDR_FMT = hasFloat ? { internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT } : { internal: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE };
+
+function shader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, shader(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+function uniform(p, name) { return gl.getUniformLocation(p, name); }
+
+const particleVS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aColor;
+layout(location=2) in vec3 aNormal;
+layout(location=3) in vec4 aParam;   // size, seed, delay, kind
+uniform mat4 uProj, uView, uModel;
+uniform float uTime, uDpr, uAssemble, uSizeScale;
+out vec3 vColor;
+out float vSeed;
+
+void main(){
+  vec3 p = aPos;
+  float ph = aParam.y * 6.2831853;
+
+  // slow organic breathing
+  p += aNormal * sin(uTime * 0.65 + ph) * 0.006;
+
+  // assembly from a scattered cloud
+  float d = aParam.z;
+  float k = clamp((uAssemble - d) / max(0.55, 1.0 - d), 0.0, 1.0);
+  k = k * k * (3.0 - 2.0 * k);
+  vec3 start = vec3(
+    sin(ph * 3.17) * (2.0 + 2.6 * fract(aParam.y * 5.7)),
+    (fract(aParam.y * 7.31) - 0.5) * 6.0,
+    cos(ph * 2.73) * (2.0 + 2.6 * fract(aParam.y * 11.3))
+  );
+  p = mix(start, p, k);
+
+  vec4 world = uModel * vec4(p, 1.0);
+  vec4 mv = uView * world;
+  gl_Position = uProj * mv;
+
+  float dist = max(-mv.z, 0.15);
+  float sz = aParam.x * uSizeScale * uDpr * (8.4 / dist);
+  gl_PointSize = clamp(sz, 1.0, 200.0);
+
+  vec3 Nw = normalize(mat3(uModel) * aNormal);
+  vec3 V = normalize(-mv.xyz);
+  vec3 L1 = normalize(vec3(-0.55, 0.80, 0.35));
+  vec3 L2 = normalize(vec3(0.65, -0.15, 0.55));
+  float d1 = max(dot(Nw, L1), 0.0);
+  float d2 = max(dot(Nw, L2), 0.0);
+  float rim = pow(1.0 - abs(dot(Nw, V)), 2.4);
+  float shade = 0.52 + 0.80 * d1 + 0.20 * d2 + 0.70 * rim;
+
+  float fog = exp(-max(dist - 5.0, 0.0) * 0.085);
+  float twinkle = 0.82 + 0.30 * sin(uTime * 1.8 + ph * 5.0);
+  vColor = aColor * shade * fog * twinkle;
+  vSeed = aParam.y;
+}`;
+
+const particleFS = `#version 300 es
+precision highp float;
+in vec3 vColor;
+in float vSeed;
+out vec4 outColor;
+void main(){
+  vec2 q = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(q, q);
+  if (r2 > 1.0) discard;
+  float a = pow(max(0.0, 1.0 - r2), 2.0);
+  outColor = vec4(vColor * a * 0.21, 1.0);
+}`;
+
+const lineVS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+uniform mat4 uProj, uView;
+uniform float uAlpha;
+out float vA;
+void main(){
+  vec4 mv = uView * vec4(aPos, 1.0);
+  gl_Position = uProj * mv;
+  vA = uAlpha * exp(-max(-mv.z - 5.0, 0.0) * 0.07);
+}`;
+
+const lineFS = `#version 300 es
+precision highp float;
+in float vA;
+out vec4 outColor;
+void main(){
+  outColor = vec4(vec3(0.62, 0.66, 0.72) * vA, 1.0);
+}`;
+
+const quadVS = `#version 300 es
+precision highp float;
+layout(location=0) in vec2 aPos;
+out vec2 vUv;
+void main(){
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+const brightFS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uThreshold;
+out vec4 outColor;
+void main(){
+  vec3 c = texture(uTex, vUv).rgb;
+  float l = max(c.r, max(c.g, c.b));
+  float k = max(l - uThreshold, 0.0);
+  k = k * k / (k + 0.16);
+  outColor = vec4(c * (k / max(l, 1e-4)), 1.0);
+}`;
+
+const blurFS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uDir;
+out vec4 outColor;
+void main(){
+  float w0 = 0.227027, w1 = 0.1945946, w2 = 0.1216216, w3 = 0.054054, w4 = 0.016216;
+  vec3 s = texture(uTex, vUv).rgb * w0;
+  s += texture(uTex, vUv + uDir * 1.0).rgb * w1;
+  s += texture(uTex, vUv - uDir * 1.0).rgb * w1;
+  s += texture(uTex, vUv + uDir * 2.0).rgb * w2;
+  s += texture(uTex, vUv - uDir * 2.0).rgb * w2;
+  s += texture(uTex, vUv + uDir * 3.0).rgb * w3;
+  s += texture(uTex, vUv - uDir * 3.0).rgb * w3;
+  s += texture(uTex, vUv + uDir * 4.0).rgb * w4;
+  s += texture(uTex, vUv - uDir * 4.0).rgb * w4;
+  outColor = vec4(s, 1.0);
+}`;
+
+const compositeFS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uScene, uBloom;
+uniform vec2 uRes;
+uniform float uTime, uStrength;
+out vec4 outColor;
+
+vec3 aces(vec3 x){
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+float hash(vec2 p){
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+void main(){
+  vec3 col = texture(uScene, vUv).rgb;
+  vec3 bloom = texture(uBloom, vUv).rgb;
+  col += bloom * uStrength;
+  vec2 p = (vUv - 0.5) * vec2(uRes.x / uRes.y, 1.0);
+  col += vec3(0.062, 0.020, 0.030) * smoothstep(0.85, 0.0, length(p));
+  col *= 1.06;
+  col = aces(col);
+
+  float d = length((vUv - 0.5) * vec2(1.0, 1.12));
+  float vig = smoothstep(1.02, 0.28, d);
+  col *= mix(0.62, 1.0, vig);
+
+  float g = (hash(vUv * uRes + fract(uTime) * 17.0) - 0.5) * 0.020;
+  col += g;
+  outColor = vec4(max(col, 0.0), 1.0);
+}`;
+
+const pParticle = program(particleVS, particleFS);
+const pLine = program(lineVS, lineFS);
+const pBlur = program(quadVS, blurFS);
+const pComposite = program(quadVS, compositeFS);
+const pBright = program(quadVS, brightFS);
+
+// particle buffers
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+function attrib(loc, data, size) {
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+}
+attrib(0, P, 3);
+attrib(1, C, 3);
+attrib(2, N, 3);
+attrib(3, A, 4);
+gl.bindVertexArray(null);
+
+// cube lines
+const CUBE_HALF = 2.78, CUBE_Y = -0.62;
+const cubePts = [];
+const corners = [];
+for (let i = 0; i < 8; i++) {
+  corners.push([
+    (i & 1 ? 1 : -1) * CUBE_HALF,
+    CUBE_Y + (i & 2 ? 1 : -1) * CUBE_HALF,
+    (i & 4 ? 1 : -1) * CUBE_HALF
+  ]);
+}
+const edges = [[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+for (const [a, b] of edges) cubePts.push(...corners[a], ...corners[b]);
+
+const lineVAO = gl.createVertexArray();
+gl.bindVertexArray(lineVAO);
+const lineBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cubePts), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+// fullscreen triangle
+const quadVAO = gl.createVertexArray();
+gl.bindVertexArray(quadVAO);
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+/* --- render targets ------------------------------------------------ */
+let W = 2, H = 2, dpr = 1;
+let sceneFBO = null, sceneTex = null, brightFBO = null, brightTex = null, blurA = null, blurB = null;
+
+function makeTarget(w, h) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, HDR_FMT.internal, w, h, 0, HDR_FMT.format, HDR_FMT.type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { fb, tex, w, h };
+}
+function disposeTarget(t) {
+  if (!t) return;
+  gl.deleteFramebuffer(t.fb);
+  gl.deleteTexture(t.tex);
+}
+
+/* --- camera -------------------------------------------------------- */
+const state = {
+  time: 0,
+  paused: false,
+  yaw: 0.0,
+  pitch: 0.0,
+  zoom: 1,
+  dragging: false,
+  lastX: 0,
+  lastY: 0
+};
+
+const cam = { eye: [0.6, 2.0, 6.2], target: [0, -0.5, 0], dist: 6.4, baseDist: 6.4, fov: 37 * Math.PI / 180 };
+let baseDir = [0, 0, 1];
+
+function layout() {
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(2, Math.round(cssW * dpr));
+  H = Math.max(2, Math.round(cssH * dpr));
+  canvas.width = W;
+  canvas.height = H;
+
+  // frame the flower, not a box
+  const aspect = W / H;
+  const t = Math.tan(cam.fov / 2);
+  const halfW = 1.22, halfH = 1.72;
+  cam.baseDist = Math.max(5.2, Math.min(9.0,
+    Math.max(halfW / (t * aspect), halfH / t) * 1.10));
+  cam.dist = cam.baseDist * state.zoom;
+  cam.target[0] = 0.0;
+  cam.target[1] = -0.50;
+
+  // rebuild targets
+  disposeTarget(sceneFBO); disposeTarget(brightFBO); disposeTarget(blurA); disposeTarget(blurB);
+  sceneFBO = makeTarget(W, H);
+  const bw = Math.max(2, Math.round(W / 2)), bh = Math.max(2, Math.round(H / 2));
+  brightFBO = makeTarget(bw, bh);
+  blurA = makeTarget(bw, bh);
+  blurB = makeTarget(bw, bh);
+}
+
+/* --- draw ---------------------------------------------------------- */
+const proj = new Float32Array(16);
+let view = new Float32Array(16);
+let model = new Float32Array(16);
+
+function drawScene() {
+  const aspect = W / H;
+  proj.set(perspective(cam.fov, aspect, 0.1, 60));
+
+  const yaw = 0.35 + state.yaw + (state.time * 0.115);
+  const pitch = 0.0 + state.pitch;
+  model = mat4Multiply(rotY(yaw), rotX(pitch));
+
+  const target = cam.target;
+  const eye = [target[0] + baseDir[0] * cam.dist, target[1] + baseDir[1] * cam.dist, target[2] + baseDir[2] * cam.dist];
+  view = lookAt(eye, target, [0, 1, 0]);
+
+  const assemble = smooth(Math.min(1, state.time / 2.6));
+
+  if (msgEl) {
+    const a = smooth(Math.min(1, Math.max(0, (state.time - 2.6) / 1.7)));
+    msgEl.style.opacity = a.toFixed(3);
+    msgEl.style.transform = "translate(-50%, " + ((1 - a) * 16).toFixed(1) + "px)";
+  }
+
+  // HDR scene
+  gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO.fb);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);
+  gl.useProgram(pParticle);
+  gl.uniformMatrix4fv(uniform(pParticle, "uProj"), false, proj);
+  gl.uniformMatrix4fv(uniform(pParticle, "uView"), false, view);
+  gl.uniformMatrix4fv(uniform(pParticle, "uModel"), false, model);
+  gl.uniform1f(uniform(pParticle, "uTime"), state.time);
+  gl.uniform1f(uniform(pParticle, "uDpr"), dpr);
+  gl.uniform1f(uniform(pParticle, "uAssemble"), assemble);
+  gl.uniform1f(uniform(pParticle, "uSizeScale"), aspect < 0.9 ? 1.75 : 1.32);
+  gl.bindVertexArray(vao);
+  gl.drawArrays(gl.POINTS, 0, pCount);
+  gl.bindVertexArray(null);
+
+  // no frame: the flower floats in open space
+  gl.disable(gl.BLEND);
+
+  // bloom: bright -> blur x2
+  gl.bindFramebuffer(gl.FRAMEBUFFER, brightFBO.fb);
+  gl.viewport(0, 0, brightFBO.w, brightFBO.h);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(pBright);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, sceneFBO.tex);
+  gl.uniform1i(uniform(pBright, "uTex"), 0);
+  gl.uniform1f(uniform(pBright, "uThreshold"), 0.58);
+  gl.bindVertexArray(quadVAO);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  gl.useProgram(pBlur);
+  gl.uniform1i(uniform(pBlur, "uTex"), 0);
+  const texelX = 1 / brightFBO.w, texelY = 1 / brightFBO.h;
+
+  // horizontal: bright -> A
+  gl.bindFramebuffer(gl.FRAMEBUFFER, blurA.fb);
+  gl.bindTexture(gl.TEXTURE_2D, brightFBO.tex);
+  gl.uniform2f(uniform(pBlur, "uDir"), texelX * 1.4, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // vertical: A -> B
+  gl.bindFramebuffer(gl.FRAMEBUFFER, blurB.fb);
+  gl.bindTexture(gl.TEXTURE_2D, blurA.tex);
+  gl.uniform2f(uniform(pBlur, "uDir"), 0, texelY * 1.4);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // second, wider pass: B -> A -> B
+  gl.bindFramebuffer(gl.FRAMEBUFFER, blurA.fb);
+  gl.bindTexture(gl.TEXTURE_2D, blurB.tex);
+  gl.uniform2f(uniform(pBlur, "uDir"), texelX * 3.2, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, blurB.fb);
+  gl.bindTexture(gl.TEXTURE_2D, blurA.tex);
+  gl.uniform2f(uniform(pBlur, "uDir"), 0, texelY * 3.2);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(pComposite);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, sceneFBO.tex);
+  gl.uniform1i(uniform(pComposite, "uScene"), 0);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, blurB.tex);
+  gl.uniform1i(uniform(pComposite, "uBloom"), 1);
+  gl.uniform2f(uniform(pComposite, "uRes"), W, H);
+  gl.uniform1f(uniform(pComposite, "uTime"), state.time);
+  gl.uniform1f(uniform(pComposite, "uStrength"), 1.15);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindVertexArray(null);
+}
+
+/* --- loop ---------------------------------------------------------- */
+let prev = performance.now();
+let raf = 0;
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - prev) / 1000);
+  prev = now;
+  if (!state.paused) state.time += dt;
+  drawScene();
+  raf = requestAnimationFrame(frame);
+}
+
+/* --- interaction --------------------------------------------------- */
+canvas.addEventListener("pointerdown", e => {
+  state.dragging = true;
+  state.lastX = e.clientX; state.lastY = e.clientY;
+  canvas.classList.add("dragging");
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", e => {
+  if (!state.dragging) return;
+  const dx = e.clientX - state.lastX, dy = e.clientY - state.lastY;
+  state.lastX = e.clientX; state.lastY = e.clientY;
+  state.yaw += dx * 0.006;
+  state.pitch = clamp(state.pitch + dy * 0.004, -0.55, 0.55);
+});
+const endDrag = e => {
+  state.dragging = false;
+  canvas.classList.remove("dragging");
+  try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+};
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  state.zoom = clamp(state.zoom * (1 + e.deltaY * 0.0012), 0.72, 1.9);
+  cam.dist = cam.baseDist * state.zoom;
+}, { passive: false });
+window.addEventListener("keydown", e => {
+  if (e.code === "Space") {
+    e.preventDefault();
+    state.paused = !state.paused;
+  }
+});
+window.addEventListener("resize", () => {
+  layout();
+  drawScene();
+});
+
+/* --- code panel ---------------------------------------------------- */
+const code = `# rose3d.py — a volumetric rose of ${pCount} particles
+# petals are vertical walls that wrap around the heart
+import numpy as np, math, random
+
+TAU    = 2.0 * math.pi
+WHORLS = [
+    (7, 0.52, 0.72, 1.00),
+    (8, 0.44, 0.82, 0.95),
+    (8, 0.35, 0.90, 0.92),
+    (7, 0.26, 0.90, 0.88),
+    (6, 0.17, 0.82, 0.82),
+    (5, 0.09, 0.62, 0.75),
+]
+PARTICLES = ${pCount}
+
+class Rose:
+    def __init__(self, seed=7):
+        self.rng = random.Random(seed)
+        self.cloud = []
+
+    def petal(self, radius, height, arc, angle, s, t):
+        theta = angle + s * arc
+        r = radius + 0.20 * t ** 1.8 - 0.07 * s * s
+        y = height * math.sqrt(max(0.0, 1 - 0.85 * abs(s) ** 5))
+        y = y * t - 0.07 * t ** 3
+        return r * math.cos(theta), y, r * math.sin(theta)
+
+    def normal(self, theta):
+        return math.cos(theta), 0.22, math.sin(theta)
+
+    def grow(self):
+        for w, (count, radius, height, arc) in enumerate(WHORLS):
+            for i in range(count):
+                angle = i * TAU / count + w * 0.42
+                for _ in range(1500):
+                    s = self.rng.uniform(-1, 1)
+                    t = self.rng.random()
+                    x, y, z = self.petal(radius, height, arc, angle, s, t)
+                    self.cloud.append((x, y, z, self.color(w, s, t)))
+        return self.cloud
+
+    def color(self, whorl, s, t):
+        q = whorl / (len(WHORLS) - 1)
+        base = mix(ROSE_PINK, DEEP_RED, 0.15 + 0.80 * q)
+        edge = 0.16 * s * s + 0.30 * t ** 3
+        return mix(base, PETAL_WHITE, min(edge, 1.0))
+
+    def render(self, frame):
+        angle = frame * 0.115
+        for x, y, z, c in self.cloud:
+            shade(self.normal(angle), c)
+            draw_point(project(x, y, z, angle))
+
+if __name__ == "__main__":
+    rose = Rose(seed=20261018).grow()
+    for frame in range(540):
+        rose.render(frame)
+        save_frame("rose_%04d.png" % frame)`.split("\n");
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function highlight(line) {
+  let codePart = line, comment = "";
+  const ci = line.indexOf("#");
+  if (ci >= 0) { codePart = line.slice(0, ci); comment = line.slice(ci); }
+  let s = esc(codePart);
+  s = s.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g, '<span class="s">$1</span>');
+  s = s.replace(/\b(def|class|return|for|in|if|else|elif|while|import|from|as|with|lambda|True|False|None|and|or|not|pass|yield|self)\b/g, '<span class="k">$1</span>');
+  s = s.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="n">$1</span>');
+  if (comment) s += '<span class="c">' + esc(comment) + '</span>';
+  return s || "&nbsp;";
+}
+const stream = document.getElementById("stream");
+const oneSet = document.createElement("div");
+oneSet.className = "code-set";
+oneSet.innerHTML = code.map(l => '<div class="line">' + highlight(l) + '</div>').join("");
+const twoSet = oneSet.cloneNode(true);
+stream.appendChild(oneSet);
+stream.appendChild(twoSet);
+
+const statsEl = document.getElementById("stats");
+if (statsEl) {
+  const petalTotal = WHORLS.reduce((s, w) => s + w.n, 0);
+  statsEl.innerHTML = "<b>" + pCount.toLocaleString("en-US") + "</b> particles · <b>" +
+    petalTotal + "</b> petals · <b>" + WHORLS.length + "</b> whorls";
+}
+
+/* --- boot ---------------------------------------------------------- */
+function baseDirection() {
+  // fixed, slightly elevated three-quarter view
+  const eye = [0.6, 3.6, 6.6], target = [0, -0.45, 0];
+  let dx = eye[0] - target[0], dy = eye[1] - target[1], dz = eye[2] - target[2];
+  const l = Math.hypot(dx, dy, dz);
+  baseDir = [dx / l, dy / l, dz / l];
+}
+baseDirection();
+layout();
+
+// allow a deterministic still:  index.html?t=6.5
+const params = new URLSearchParams(location.search);
+if (params.has("t")) {
+  state.time = parseFloat(params.get("t")) || 0;
+  state.paused = true;
+  drawScene();
+  loading.classList.add("gone");
+  window.__ready = true;
+} else {
+  drawScene();
+  loading.classList.add("gone");
+  raf = requestAnimationFrame(frame);
+  window.__ready = true;
+}
+
+// deterministic rendering hook (used for video export)
+window.__renderAt = function (t) {
+  state.paused = true;
+  state.time = t;
+  drawScene();
+  return true;
+};
+window.__state = state;
+
+})();
+</script>
+</body>
+</html>
